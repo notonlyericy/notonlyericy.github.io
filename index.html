@@ -69,6 +69,98 @@
       <div class="outer">
         <section id="main">
   
+    <article id="post-skiplist" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
+  <div class="article-meta">
+    <a href="/structure-and-algorithm/skiplist-0bed18734e08/" class="article-date">
+  <time class="dt-published" datetime="2024-07-15T00:01:55.000Z" itemprop="datePublished">2024-07-15</time>
+</a>
+    
+  <div class="article-category">
+    <a class="article-category-link" href="/categories/structure-and-algorithm/">Structure and Algorithm</a>
+  </div>
+
+  </div>
+  <div class="article-inner">
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 itemprop="name">
+      <a class="p-name article-title" href="/structure-and-algorithm/skiplist-0bed18734e08/">skiplist</a>
+    </h1>
+  
+
+      </header>
+    
+    <div class="e-content article-entry" itemprop="articleBody">
+      
+        <h3 id="skiplist">skiplist</h3>
+<p>前言：在看代码时看到 ZSKIPLIST_MAXLEVEL = 32，当时并不了解 ZSKIPLIST_P 的作用，想着用 2 分法不应该层数是 64 吗？书上和他人的代码都是基于 5.0 的(5.0 上是 64)，于是好奇后面又为什么改了。于是查了一些资料做下记录</p>
+<h4 id="为什么-ZSKIPLIST-MAXLEVEL-32-？">为什么 ZSKIPLIST_MAXLEVEL = 32 ？</h4>
+<p><a target="_blank" rel="noopener" href="https://stackoverflow.com/questions/60017681/is-zskiplist-maxlevel64-enough-for-264-elements">https://stackoverflow.com/questions/60017681/is-zskiplist-maxlevel64-enough-for-264-elements</a></p>
+<p>ZSKIPLIST_MAXLEVEL 和 ZSKIPLIST_P 相关：</p>
+<ol>
+<li>将元素个数上限设置在 2<sup>64</sup> 已经是一个很大的值了，如果再大也存不下了，因为用来表示总数的 length 的类型 unsigned long 在 64 位机器上也只有 8 个字节</li>
+<li>平均每两个节点升一层，那么需要 64 层；而如果平均每四个节点升一层，只需要 32 层，此时相对于 n 层，有 1/4 的节点有 n+1 层，因此 ZSKIPLIST_P=0.25。
+<ul>
+<li>至于为什么取 1/4，下方提供的论文中作者在 <strong>Choosing p</strong> 中作了说明</li>
+</ul>
+</li>
+</ol>
+<h4 id="跳表原理">跳表原理</h4>
+<p><a target="_blank" rel="noopener" href="https://homepage.cs.uiowa.edu/~ghosh/skip.pdf">https://homepage.cs.uiowa.edu/~ghosh/skip.pdf</a><br>
+<img src="https://img2023.cnblogs.com/blog/3076745/202301/3076745-20230128164035483-1027119913.png" alt="image"></p>
+<ul>
+<li>
+<p>d：</p>
+<ul>
+<li>优点：<br>
+相对于 c: d 的每一层的指针都指向距离它 2<sup>level</sup> 位置的节点， 因此将搜索的时间复杂度降到了 O(log<sub>2</sub>n)</li>
+<li>缺点：<br>
+增删改节点时，需要时刻考虑修改跳表中其他节点的层数，增大修改的难度</li>
+</ul>
+</li>
+<li>
+<p>e：</p>
+<ul>
+<li>优点：<br>
+从 d 中可以找到规律，由于层数只会在索引为 2 的倍数的节点上增加，因此索引为单数的节点的层数只有一层，共有 50% 个这样的节点，层数为 2 的节点数量为 25%， 以此类推……因此，不妨将所有节点的层数打乱，但仍然保持这样的比例分配，并且无法修改节点的层数。这样，增删改节点时，都不会影响其他节点的层数。</li>
+<li>缺点：<br>
+就像抛硬币一样，尽管理论上正反面的概率都是 50%，但那也是在大量实验后才会逐渐接近这个理论值。如果节点比较少，计算得到的层数都很低或都很高，那么就变成了一条链表，时间复杂度降低到 O(n)。因此，通过该方式虽然可以减少代码复杂度，但是能否准确的达到预期，这是随机的。</li>
+</ul>
+</li>
+</ul>
+<h4 id="随机层高">随机层高</h4>
+<p>实现 e 的关键部分，减小代码实现难度。<br>
+假设 d 中的底数为 3，第二层在第一层的基础上每<strong>三</strong>个加一层；第三层又是在第二层的基础上每<strong>三</strong>个加一层……最终，只有一层的节点比例为 $\frac{2}{3}$, 第二层的比例为 $(1-\frac{2}{3})\cdot\frac{2}{3}$<br>
+因此以一般情况 p 代替 $\frac{2}{3}$，可以得到<br>
+$$P(level_{i}) = (1-p)^{i-1}p$$</p>
+<h5 id="random-level">random level</h5>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">randomLevel</span><span class="params">()</span></span> <span class="type">int</span> &#123;</span><br><span class="line">  newLevel := <span class="number">1</span></span><br><span class="line">  <span class="keyword">for</span> rand.Float64() &lt; p &#123; <span class="comment">// 这里的 p 为非该层的概率</span></span><br><span class="line">    newLevel++</span><br><span class="line">  &#125;</span><br><span class="line">  <span class="keyword">return</span> newLevel</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>以下用 insert 方法来体现 random_level 的优势：</p>
+<p>因为用到了随机高度，因此在插入新节点时无需改动其他节点的高度。但是需要保存所有<strong>层级比新节点低的</strong>且<strong>原本可以指向新节点之后节点</strong>的 <em>forward</em>，可以在降低层级时保存每个 <em>forward</em>。<br>
+<font color=red>【注】</font><br>
+在论文中，如果插入了含有已存在的 search key 的 element，则会替换旧的 element</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(zsl *zskiplist)</span></span> Insert(score <span class="type">float64</span>, ele <span class="type">string</span>) *zskiplistNode &#123;</span><br><span class="line">  <span class="keyword">var</span> (</span><br><span class="line">    update  [ZSKIPLIST_MAXLEVEL]*zskiplistNode</span><br><span class="line">    x       *zskiplistNode</span><br><span class="line">  )</span><br><span class="line"></span><br><span class="line">  x = zsl.header</span><br><span class="line">  <span class="keyword">for</span> i := zsl.level - <span class="number">1</span>; i &gt;= <span class="number">0</span>; i-- &#123;</span><br><span class="line">    <span class="keyword">for</span> x.level[i].forward != <span class="literal">nil</span> &amp;&amp;</span><br><span class="line">      (x.level[i].forward.score &lt; score ||</span><br><span class="line">      (x.level[i].forward.score == score &amp;&amp; x.level[i].forward.ele &lt; ele)) &#123;</span><br><span class="line">        x = x.level[i].forward</span><br><span class="line">    &#125;</span><br><span class="line">    update[i] = x</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  x = x.level[<span class="number">0</span>].forward</span><br><span class="line">  <span class="keyword">if</span> x != <span class="literal">nil</span> &amp;&amp; x.score == score &#123;</span><br><span class="line">    x.ele = ele</span><br><span class="line">    <span class="keyword">return</span> x</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  level := randomLevel()</span><br><span class="line">  <span class="keyword">if</span> zsl.level &lt; level &#123;</span><br><span class="line">    <span class="keyword">for</span> i := zsl.level; i &lt; level; i++ &#123;</span><br><span class="line">      update[i] = zsl.header</span><br><span class="line">    &#125;</span><br><span class="line">    zsl.level = level</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  x = zslCreateNode(level, score, ele)</span><br><span class="line">  <span class="keyword">for</span> i := <span class="number">0</span>; i &lt; zsl.level; i++ &#123;</span><br><span class="line">    x.level[i].forward = update[i].level[i].forward</span><br><span class="line">    update[i].level[i].forward = x</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  <span class="keyword">if</span> update[<span class="number">0</span>] == zsl.header &#123;</span><br><span class="line">    x.backward = <span class="literal">nil</span></span><br><span class="line">  &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">    x.backward = update[<span class="number">0</span>]</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  <span class="keyword">if</span> x.level[<span class="number">0</span>].forward == <span class="literal">nil</span> &#123;</span><br><span class="line">    zsl.tail = x</span><br><span class="line">  &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">    x.level[<span class="number">0</span>].forward.backward = x</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  zsl.length++</span><br><span class="line">  <span class="keyword">return</span> x</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+      
+    </div>
+    <footer class="article-footer">
+      <a data-url="https://notonlyericy.github.io/structure-and-algorithm/skiplist-0bed18734e08/" data-id="clylqww8o0002qltnh2z1447v" data-title="skiplist" class="article-share-link"><span class="fa fa-share">Share</span></a>
+      
+      
+      
+  <ul class="article-tag-list" itemprop="keywords"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/structure/" rel="tag">structure</a></li></ul>
+
+    </footer>
+  </div>
+  
+</article>
+
+
+
+  
     <article id="post-random-access-iterator" class="h-entry article article-type-post" itemprop="blogPost" itemscope itemtype="https://schema.org/BlogPosting">
   <div class="article-meta">
     <a href="/programming-language/random-access-iterator-c7e25bb7de70/" class="article-date">
@@ -217,7 +309,7 @@ RandomAccessIterator 是最复杂的迭代器。</p>
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://notonlyericy.github.io/programming-language/random-access-iterator-c7e25bb7de70/" data-id="clylqnq5p0001wstn9rochpqb" data-title="random access iterator" class="article-share-link"><span class="fa fa-share">Share</span></a>
+      <a data-url="https://notonlyericy.github.io/programming-language/random-access-iterator-c7e25bb7de70/" data-id="clylqww8m0001qltnbda53gta" data-title="random access iterator" class="article-share-link"><span class="fa fa-share">Share</span></a>
       
       
       
@@ -271,7 +363,7 @@ RandomAccessIterator 是最复杂的迭代器。</p>
       
     </div>
     <footer class="article-footer">
-      <a data-url="https://notonlyericy.github.io/uncategorized/hello-world-3cd0ba308367/" data-id="clylqnq5d0000wstn3qxfd71u" data-title="Hello World" class="article-share-link"><span class="fa fa-share">Share</span></a>
+      <a data-url="https://notonlyericy.github.io/uncategorized/hello-world-3cd0ba308367/" data-id="clylqww8h0000qltnfksqgurx" data-title="Hello World" class="article-share-link"><span class="fa fa-share">Share</span></a>
       
       
       
@@ -293,7 +385,7 @@ RandomAccessIterator 是最复杂的迭代器。</p>
   <div class="widget-wrap">
     <h3 class="widget-title">Categories</h3>
     <div class="widget">
-      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/programming-language/">Programming Language</a></li></ul>
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/programming-language/">Programming Language</a></li><li class="category-list-item"><a class="category-list-link" href="/categories/structure-and-algorithm/">Structure and Algorithm</a></li></ul>
     </div>
   </div>
 
@@ -303,7 +395,7 @@ RandomAccessIterator 是最复杂的迭代器。</p>
   <div class="widget-wrap">
     <h3 class="widget-title">Tags</h3>
     <div class="widget">
-      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/c-plus-plus/" rel="tag">C++</a></li></ul>
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/c-plus-plus/" rel="tag">C++</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/structure/" rel="tag">structure</a></li></ul>
     </div>
   </div>
 
@@ -313,7 +405,7 @@ RandomAccessIterator 是最复杂的迭代器。</p>
   <div class="widget-wrap">
     <h3 class="widget-title">Tag Cloud</h3>
     <div class="widget tagcloud">
-      <a href="/tags/c-plus-plus/" style="font-size: 10px;">C++</a>
+      <a href="/tags/c-plus-plus/" style="font-size: 10px;">C++</a> <a href="/tags/structure/" style="font-size: 10px;">structure</a>
     </div>
   </div>
 
@@ -333,6 +425,10 @@ RandomAccessIterator 是最复杂的迭代器。</p>
     <h3 class="widget-title">Recent Posts</h3>
     <div class="widget">
       <ul>
+        
+          <li>
+            <a href="/structure-and-algorithm/skiplist-0bed18734e08/">skiplist</a>
+          </li>
         
           <li>
             <a href="/programming-language/random-access-iterator-c7e25bb7de70/">random access iterator</a>
